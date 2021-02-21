@@ -13,9 +13,27 @@ contextBridge.exposeInMainWorld(
       ipcRenderer.send('join-room', room, name)
     },
     computerName: os.hostname(),
+    connection: () => {
+      return ipcRenderer.invoke('get-connection-status');
+    },
   }
 )
 
-ipcRenderer.on('asynchronous-reply', (event, arg) => {
-  console.log(arg) // prints "pong"
-})
+contextBridge.exposeInMainWorld(
+  "api", {
+      send: (channel, ...data) => {
+          // whitelist channels
+          let validChannels = ['join-room', 'connect-server'];
+          if (validChannels.includes(channel)) {
+              ipcRenderer.send(channel, ...data);
+          }
+      },
+      receive: (channel, func) => {
+          let validChannels = ["connection-changed"];
+          if (validChannels.includes(channel)) {
+              // Deliberately strip event as it includes `sender`
+              ipcRenderer.on(channel, (event, ...args) => func(...args));
+          }
+      }
+  }
+);

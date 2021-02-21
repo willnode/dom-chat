@@ -15,7 +15,10 @@
 <body>
     <div class="navbar">
         <div class="navbar-brand">DOM Chat</div>
-        <div class="ml-auto">Server <span id="server-status">Off</span></div>
+        <div class="ml-auto">Server
+            <span id="server-status">Off</span>
+            <button id="server-retry" class="d-none btn btn-danger" onclick="startConnection()">Retry</button>
+        </div>
     </div>
     <div class="d-flex">
         <div id="rooms" style="width: 200px;" class="mr-2">
@@ -23,8 +26,8 @@
             <button onclick="gotoPage('view-new-room')" class="btn btn-block btn-primary">New Room</button>
         </div>
         <div id="view-profile" class="view-tab text-center">
-            <p><input type="text" class="mb-3 mx-auto form-control" style="max-width: 200px;" id="input-name" placeholder="Name"
-                    oninput="saveName()"></p>
+            <p><input type="text" class="mb-3 mx-auto form-control" style="max-width: 200px;" id="input-name"
+                    placeholder="Name" oninput="saveName()"></p>
             <p>Click room. <a href="#" onclick="gotoPage('view-new-room')">Or new room?</a></p>
             <p class="text-black-50">DOM Chat - Alpha Version</p>
         </div>
@@ -51,6 +54,16 @@
             });
         }
 
+        function updateServerStatus(c) {
+            $('#server-status').text(c ? 'On' : 'Off');
+            $('#server-retry').toggleClass('d-none', c);
+        }
+
+        function startConnection() {
+            $('#server-retry').toggleClass('d-none', true);
+            window.api.send('connect-server', 'localhost', 8080);
+        }
+
         function saveName(newName) {
             if (newName)
                 localStorage.setItem('name', userName = newName);
@@ -63,6 +76,13 @@
 
         window.addEventListener('DOMContentLoaded', (event) => {
             $('#input-name').val(userName);
+            window.api.receive('connection-changed', updateServerStatus);
+            startConnection();
+            setTimeout(function () {
+                window.server.connection().then(data => {
+                    updateServerStatus(data.connected);
+                })
+            }, 10)
         });
     </script>
 </body>

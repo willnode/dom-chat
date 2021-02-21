@@ -23,6 +23,8 @@ function createWindow() {
 
   // Open the DevTools.
   mainWindow.webContents.openDevTools()
+
+  return mainWindow;
 }
 
 const com = new Communication();
@@ -31,21 +33,37 @@ const com = new Communication();
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
 app.whenReady().then(() => {
-  createWindow()
 
-  com.startConnecting();
+  var mainWindow = createWindow()
 
   app.on('activate', function () {
     // On macOS it's common to re-create a window in the app when the
     // dock icon is clicked and there are no other windows open.
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    if (BrowserWindow.getAllWindows().length === 0) {
+      mainWindow = createWindow();
+    }
+  })
+
+  com.on('connection-changed', function (connected) {
+    if (!mainWindow.isDestroyed())
+      mainWindow.webContents.send('connection-changed', connected);
+  })
+
+  ipcMain.handle('get-connection-status', function (event) {
+    return {
+      connected: com.connected,
+      host: com.socket.remoteAddress,
+      port: com.socket.remotePort,
+    }
   })
 
   ipcMain.on('join-room', function (event, room, name) {
-    console.log("AAA");
     com.joinServer(room, name);
   })
 
+  ipcMain.on('connect-server', function (event, host, port) {
+    com.startConnecting(host, port);
+  })
 
 })
 
