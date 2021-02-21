@@ -25,15 +25,12 @@ class Communication {
     eventListeners = {};
     whoami = {
         name: os.hostname(),
-        uid: os.hostname(),
+        uid: 'u-' + Date.now(),
     };
     /**
-     * connection-changed -> connected (bool);
-     * chat-sent -> room (string), peer (mixed);
-     * chat-incoming -> room (string), data (mixed);
-     * file-incoming -> room (string), name (string);
-     * room-joining -> room (string), peer (mixed);
-     * room-leaving -> room (string), peer (mixed);
+     * server-updated
+     * room-updated (rid)
+     * chat-received (rid, payload)
      */
     on(name, fun) {
         if (this.eventListeners[name]) {
@@ -80,24 +77,7 @@ class Communication {
 
         socket.on('data', (data) => {
             var req = parseHttpLike(data);
-            if (req.method == 'IAMWHO') {
-                var body = JSON.parse(req.body);
-                var address = peer.address;
-                if (typeof body == 'object') {
-                    peer.connected = true;
-                    peer.uid = body.uid;
-                    peer.name = body.name || address;
-                    // refresh indexes
-                    this.peers[body.uid] = peer;
-                    this.address2uid[address] = peer.uid;
-                    if (this.address2rid[address])
-                        this.address2rid[address].forEach(rid => {
-                            if (this.rooms[rid].peers[address]) {
-                                this.rooms[rid].peers[address] = peer.uid;
-                            }
-                        });
-                }
-            } else if (peer.uid == 'server') {
+            if (peer.uid == 'server') {
                 if (req.method == 'WELCOME') {
                     // we're joining to a new room
                     this.respond2Welcome(JSON.parse(req.body));
@@ -108,6 +88,43 @@ class Communication {
                     //somebody leaves the room
                     this.respond2Leaving(JSON.parse(req.body));
                 }
+            } else {
+                if (req.method == 'IAMWHO') {
+                    var body = JSON.parse(req.body);
+                    var address = peer.address;
+                    if (typeof body == 'object') {
+                        peer.connected = true;
+                        peer.uid = body.uid;
+                        peer.name = body.name || address;
+                        // refresh indexes
+                        this.peers[body.uid] = peer;
+                        this.address2uid[address] = peer.uid;
+                        if (this.address2rid[address])
+                            this.address2rid[address].forEach(rid => {
+                                if (this.rooms[rid].peers[address] !== undefined) {
+                                    this.rooms[rid].peers[address] = peer.uid;
+                                    this.trigger('room-updated', rid);
+                                }
+                            });
+                        if (peer.uid == 'server') {
+                            this.trigger('server-updated');
+                        }
+                    }
+                } else if (req.method == 'MESSAGE') {
+                    var body = JSON.parse(req.body);
+                    if (body.cid && body.room && body.msg) {
+                        var room = this.rooms[body.room];
+                        if (room && room.peers[peer.address]) {
+                            var payload = {
+                                cid: body.cid,
+                                msg: body.msg,
+                                by: room.peers[peer.address],
+                            };
+                            room.chats.push(payload);
+                            this.trigger('chat-received', rid, payload);
+                        }
+                    }
+                }
             }
         });
 
@@ -115,6 +132,9 @@ class Communication {
             if (err.message.includes('ECONNREFUSED')) {
                 // failed to connect
                 peer.connected = false;
+                if (peer.uid == 'server') {
+                    this.trigger('server-updated');
+                }
             } else {
                 console.log('ERROR: ' + err.message);
             }
@@ -122,22 +142,53 @@ class Communication {
 
         socket.on('close', () => {
             this.respond2Closing(peer.address);
+            if (peer.uid == 'server') {
+                this.trigger('server-updated');
+            }
         });
     }
-    joinServer(room) {
-        this.socket.write(`JOIN\nROOM: ${room}`);
-        console.log('Joined room');
+    joinRoom(rid) {
+        var peer = this.peers['server'];
+        if (peer && peer.connected) {
+            peer.socket.write(`JOIN\nROOM: ${rid}`);
+        }
+    }
+    leaveRoom(rid) {
+        var peer = this.peers['server'];
+        if (peer && peer.connected) {
+            peer.write(`LEAVE\nROOM: ${rid}`);
+        }
+    }
+    sendChat(rid, message) {
+        // send to all peers
+        var room = this.rooms[rid];
+        if (room) {
+            var payload = 'MESSAGE\n\n' + JSON.stringify({
+                cid: Date.now(),
+                room: rid,
+                msg: message,
+            });
+            Object.values(room.peers).forEach(uid => {
+                var peer = this.peers[uid];
+                if (peer && peer.connected) {
+                    peer.socket.write(payload);
+                }
+            });
+        }
     }
     closeAllConnection() {
+        console.log('quit');
+        this.server.close();
         Object.values(this.peers).forEach(e => {
             if (e.socket) {
+                e.socket.end();
                 e.socket.destroy();
             }
         });
     }
     respond2Welcome(data) {
         // add to index
-        var room = new Room();
+        var room = this.rooms[data.room] || new Room();
         var rid = room.rid = data.room;
         var peers = {};
         data.peers.forEach(addr => {
@@ -155,11 +206,13 @@ class Communication {
             }
         });
         room.peers = peers;
-        rooms[rid] = room;
+        this.rooms[rid] = room;
+        this.trigger('room-updated', rid);
     }
     respond2Joining(data) {
         // add to respective room
-        var room = this.rooms[data.room];
+        var rid = data.room;
+        var room = this.rooms[rid];
         var addr = data.address;
         if (room && room.peers[addr] === undefined) {
             if (this.address2uid[addr])
@@ -173,6 +226,7 @@ class Communication {
             } else {
                 this.address2rid[addr] = [rid];
             }
+            this.trigger('room-updated', rid);
         }
     }
     respond2Leaving(data) {
@@ -180,17 +234,13 @@ class Communication {
         var room = this.rooms[data.room];
         var addr = data.address;
         if (room && room.peers[addr] !== undefined) {
-            if (this.address2uid[addr])
-                room.peers[addr] = this.address2uid[addr]
-            else {
-                room.peers[addr] = null;
-                this.startConnection(...splitAddress(addr));
+            room.joined = false;
+            delete room.peers[addr];
+            var i = this.address2rid[addr].findIndex(room.rid);
+            if (i >= 0) {
+                delete this.address2rid[addr][i];
             }
-            if (this.address2rid[addr]) {
-                this.address2rid[addr].push(rid);
-            } else {
-                this.address2rid[addr] = [rid];
-            }
+            this.trigger('room-updated', room.rid);
         }
     }
     respond2Closing(addr) {
@@ -210,6 +260,7 @@ class Communication {
                 var room = this.rooms[rid];
                 if (room) {
                     delete room.peers[addr];
+                    this.trigger('room-updated', rid);
                 }
             });
             delete this.address2rid[addr];
@@ -224,6 +275,7 @@ class Room {
     chats = [];
     /** @type {Object.<string,string>} address (rid) to peer (uid) map */
     peers = {};
+    joined = true;
     toObject() {
         return {
             rid: this.rid,

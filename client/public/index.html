@@ -2,89 +2,127 @@
 <html lang="en">
 
 <head>
-    <meta charset="UTF-8">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Document</title>
-    <link rel="stylesheet" href="./style.css">
-    <link rel="stylesheet" href="../node_modules/bootstrap/dist/css/bootstrap.min.css">
-    <script src="../node_modules/jquery/dist/jquery.slim.js"></script>
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline'">
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DOM Chat (Alpha)</title>
+  <link rel="stylesheet" href="./style.css">
+  <link rel="stylesheet" href="../node_modules/bootstrap/dist/css/bootstrap.min.css">
+  <script src="../node_modules/jquery/dist/jquery.slim.js"></script>
+  <script src="../node_modules/bootstrap/dist/js/bootstrap.min.js"></script>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline'">
 </head>
 
 <body>
-    <div class="navbar">
-        <div class="navbar-brand">DOM Chat</div>
-        <div class="ml-auto">Server
-            <span id="server-status">Off</span>
-            <button id="server-retry" class="d-none btn btn-danger" onclick="startConnection()">Retry</button>
-        </div>
+  <div class="navbar">
+    <div class="navbar-brand">
+      DOM Chat
+      <button class="btn btn-link" id="display-name"
+        onclick="changeDisplayName(prompt('New display name: (applied for new connections)', $('#display-name').text()))"></button>
     </div>
-    <div class="d-flex">
-        <div id="rooms" style="width: 200px;" class="mr-2">
-            <div id="list-rooms"></div>
-            <button onclick="gotoPage('view-new-room')" class="btn btn-block btn-primary">New Room</button>
-        </div>
-        <div id="view-profile" class="view-tab text-center">
-            <p><input type="text" class="mb-3 mx-auto form-control" style="max-width: 200px;" id="input-name"
-                    placeholder="Name" oninput="saveName()"></p>
-            <p>Click room. <a href="#" onclick="gotoPage('view-new-room')">Or new room?</a></p>
-            <p class="text-black-50">DOM Chat - Alpha Version</p>
-        </div>
-        <div id="view-new-room" class="view-tab d-none">
-            <form onsubmit="createOrJoinRoom($('#input-new-room').val()); return false;">
-                <input type="text" id="input-new-room" placeholder="Room Username">
-                <button class="btn btn-primary">Create or Join</button>
-            </form>
-        </div>
-        <div id="view-chat" class="view-tab d-none">
-            <input type="text" id="input-name" placeholder="Name" oninput="saveName()">
-            Click room. <a onclick="gotoPage('view-new-room')">Or new room?</a>
-        </div>
+    <div class="ml-auto">Server
+      <span id="server-status">Off</span>
+      <button id="server-retry" class="d-none btn btn-danger"
+        onclick="window.api.send('connect-server'); $('#server-retry').addClass('d-none')">Retry</button>
     </div>
-    <script>
-        let userName = localStorage.name || window.server.computerName;
-
-        function gotoPage(page) {
-            $('.view-tab').each(function (i, e) {
-                if (e.id == page)
-                    e.classList.remove('d-none');
-                else
-                    e.classList.add('d-none');
-            });
-        }
-
-        function updateServerStatus(c) {
-            $('#server-status').text(c ? 'On' : 'Off');
-            $('#server-retry').toggleClass('d-none', c);
-        }
-
-        function startConnection() {
-            $('#server-retry').toggleClass('d-none', true);
-            window.api.send('connect-server', 'localhost', 8080);
-        }
-
-        function saveName(newName) {
-            if (newName)
-                localStorage.setItem('name', userName = newName);
-        }
-
-        function createOrJoinRoom(room) {
-            if (room)
-                window.server.joinRoom(room, userName);
-        }
-
-        window.addEventListener('DOMContentLoaded', (event) => {
-            $('#input-name').val(userName);
-            window.api.receive('connection-changed', updateServerStatus);
-            startConnection();
-            setTimeout(function () {
-                window.server.connection().then(data => {
-                    updateServerStatus(data.connected);
-                })
-            }, 10)
+  </div>
+  <div class="d-flex flex-grow-1">
+    <div id="rooms" style="width: 200px;" class="mr-2 bg-light">
+      <div id="list-rooms"></div>
+      <button  data-toggle="modal" data-target="#exampleModal" class="btn btn-block btn-primary">New
+        Room</button>
+    </div>
+    <div id="chats" class="d-flex flex-column flex-grow-1 py-2">
+      <div id="list-chats" class="flex-grow-1" style="overflow-y: scroll;"></div>
+      <div class="d-flex">
+        <input type="text" class="form-control" id="chat-box">
+        <input type="button" value="Send" class="btn btn-primary"
+          onclick="sendMessage($('#chat-box').val()); $('#chat-box').val('')">
+      </div>
+    </div>
+    <div id="rooms" style="width: 200px;" class="ml-2 bg-light">
+      <div id="list-peers"></div>
+    </div>
+  </div>
+  <div class="modal" id="exampleModal" tabindex="-1">
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Open Room</h5>
+          <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+            <span aria-hidden="true">&times;</span>
+          </button>
+        </div>
+        <div class="modal-body">
+          <input type="text" id="open-room-name">
+        </div>
+        <div class="modal-footer">
+          <button type="button" onclick="createOrJoinRoom($('#open-room-name').val())" data-dismiss="modal" class="btn btn-primary">Open</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script>
+    function changeDisplayName(newname) {
+      if (newname)
+        window.api.get('user-info', null).then(i => {
+          window.api.get('user-info', {
+            name: newname,
+            uid: i.uid,
+          })
         });
-    </script>
+    }
+
+    function createOrJoinRoom(roomid) {
+      if (roomid) {
+        window.api.send('join-room', roomid);
+        $('#list-rooms').append($('<button class="btn-outline-primary">').on('click', function (e) {
+          selectRoom(roomid);
+        }).text(roomid));
+      }
+    }
+
+    var currentRoom = null;
+
+    function selectRoom(roomid) {
+      currentRoom = roomid;
+      window.api.get('get-room-info', roomid).then(i => {
+        $('#list-chats').html(i.chats.map(x => $('<div>').text(x.by + ": " + x.msg)));
+        $('#list-peers').html(Object.values(i.peers).map(x => $('<div>').text(x)));
+      });
+    }
+
+    function sendMessage(msg) {
+      if (currentRoom) {
+        window.api.send('send-chat', currentRoom, msg);
+      }
+    }
+    window.addEventListener('beforeunload', function () {
+      window.api.send('close-server');
+    })
+    window.addEventListener('DOMContentLoaded', (event) => {
+      // update user info
+      window.api.get('user-info', null).then(i => {
+        $('#display-name').text(i.name).attr('title', i.uid);
+      });
+      // listen for server updates
+      window.api.receive('server-updated', function () {
+        window.api.get('get-server-info', null).then(i => {
+          $('#server-status').text(i.connected ? 'Connected' : 'Offline');
+          $('#server-retry').toggleClass('d-none', i.connected);
+        });
+      })
+      window.api.send('connect-server');
+      // $('#input-name').val(userName);
+      // window.api.receive('connection-changed', updateServerStatus);
+      // startConnection();
+      // setTimeout(function () {
+      //     window.server.connection().then(data => {
+      //         updateServerStatus(data.connected);
+      //     })
+      // }, 10)
+    });
+  </script>
 </body>
 
 </html>

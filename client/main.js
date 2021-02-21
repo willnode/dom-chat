@@ -4,14 +4,15 @@ const {
   BrowserWindow,
   ipcMain
 } = require('electron')
+
 const path = require('path')
-const Communication = require('./src/communication');
+const {
+  Communication
+} = require('./src/communication');
 
 function createWindow() {
   // Create the browser window.
   const mainWindow = new BrowserWindow({
-    width: 800,
-    height: 600,
     webPreferences: {
       preload: path.join(__dirname, 'public/preload.js'),
       contextIsolation: true
@@ -23,6 +24,8 @@ function createWindow() {
 
   // Open the DevTools.
   mainWindow.webContents.openDevTools()
+
+  mainWindow.maximize();
 
   return mainWindow;
 }
@@ -42,27 +45,47 @@ app.whenReady().then(() => {
     if (BrowserWindow.getAllWindows().length === 0) {
       mainWindow = createWindow();
     }
-  })
+  });
 
-  com.on('connection-changed', function (connected) {
-    if (!mainWindow.isDestroyed())
-      mainWindow.webContents.send('connection-changed', connected);
+  ['server-updated', 'room-updated', 'chat-received'].forEach(key => {
+    com.on(key, function (...args) {
+      if (!mainWindow.isDestroyed())
+        mainWindow.webContents.send(key, ...args);
+    })
+  });
+  ipcMain.handle('get-server-info', function (event) {
+    return (com.peers['server'] && com.peers['server'].toObject()) || null;
   })
-
-  ipcMain.handle('get-connection-status', function (event) {
-    return {
-      connected: com.connected,
-      host: com.socket.remoteAddress,
-      port: com.socket.remotePort,
+  ipcMain.handle('get-room-info', function (event, rid) {
+    console.log([rid]);
+    return (com.rooms[rid] && com.rooms[rid].toObject()) || null;
+  })
+  ipcMain.handle('get-peer-info', function (event, uid) {
+    return (com.peers[uid] && com.peers[uid].toObject()) || null;
+  })
+  ipcMain.handle('get-room-list', function (event, uid) {
+    return Object.keys(com.rooms);
+  })
+  ipcMain.handle('user-info', function (event, user) {
+    if (user && typeof user == 'object') {
+      com.whoami = user;
     }
+    return com.whoami;
   })
-
-  ipcMain.on('join-room', function (event, room, name) {
-    com.joinServer(room, name);
+  ipcMain.on('join-room', function (event, room) {
+    com.joinRoom(room);
   })
-
-  ipcMain.on('connect-server', function (event, host, port) {
-    com.startConnecting(host, port);
+  ipcMain.on('leave-room', function (event, room) {
+    com.leaveRoom(room);
+  })
+  ipcMain.on('send-chat', function (event, room, message) {
+    com.sendChat(room, message);
+  })
+  ipcMain.on('connect-server', function (event) {
+    com.startConnection('localhost', 8080);
+  })
+  ipcMain.on('close-server', function (event) {
+    com.closeAllConnection();
   })
 
 })
@@ -72,7 +95,6 @@ app.whenReady().then(() => {
 // explicitly with Cmd + Q.
 app.on('window-all-closed', function () {
   if (process.platform !== 'darwin') {
-    com.closeConnection();
     app.quit()
   }
 })

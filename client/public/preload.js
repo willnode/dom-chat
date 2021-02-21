@@ -5,35 +5,29 @@ const {
   contextBridge,
   ipcRenderer
 } = require('electron');
-const os = require('os');
-
-contextBridge.exposeInMainWorld(
-  'server', {
-    joinRoom: (room, name) => {
-      ipcRenderer.send('join-room', room, name)
-    },
-    computerName: os.hostname(),
-    connection: () => {
-      return ipcRenderer.invoke('get-connection-status');
-    },
-  }
-)
 
 contextBridge.exposeInMainWorld(
   "api", {
-      send: (channel, ...data) => {
-          // whitelist channels
-          let validChannels = ['join-room', 'connect-server'];
-          if (validChannels.includes(channel)) {
-              ipcRenderer.send(channel, ...data);
-          }
-      },
-      receive: (channel, func) => {
-          let validChannels = ["connection-changed"];
-          if (validChannels.includes(channel)) {
-              // Deliberately strip event as it includes `sender`
-              ipcRenderer.on(channel, (event, ...args) => func(...args));
-          }
+    send: (channel, ...data) => {
+      // whitelist channels
+      let validChannels = ['join-room', 'leave-room', 'send-chat', 'connect-server', 'close-server'];
+      if (validChannels.includes(channel)) {
+        ipcRenderer.send(channel, ...data);
       }
+    },
+    receive: (channel, func) => {
+      let validChannels = ['server-updated', 'room-updated', 'chat-received'];
+      if (validChannels.includes(channel)) {
+        // Deliberately strip event as it includes `sender`
+        ipcRenderer.on(channel, (event, ...args) => func(...args));
+      }
+    },
+    get: (channel, ...data) => {
+      // whitelist channels
+      let validChannels = ['get-server-info', 'get-room-info', 'get-peer-info', 'get-room-list', 'user-info'];
+      if (validChannels.includes(channel)) {
+        return ipcRenderer.invoke(channel, ...data);
+      }
+    },
   }
 );
