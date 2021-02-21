@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document</title>
+    <link rel="stylesheet" href="./style.css">
+    <link rel="stylesheet" href="../node_modules/bootstrap/dist/css/bootstrap.min.css">
+    <script src="../node_modules/jquery/dist/jquery.slim.js"></script>
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline'">
+</head>
+
+<body>
+    <div class="navbar">
+        <div class="navbar-brand">DOM Chat</div>
+        <div class="ml-auto">Server <span id="server-status">Off</span></div>
+    </div>
+    <div class="d-flex">
+        <div id="rooms" style="width: 200px;" class="mr-2">
+            <div id="list-rooms"></div>
+            <button onclick="gotoPage('view-new-room')" class="btn btn-block btn-primary">New Room</button>
+        </div>
+        <div id="view-profile" class="view-tab text-center">
+            <p><input type="text" class="mb-3 mx-auto form-control" style="max-width: 200px;" id="input-name" placeholder="Name"
+                    oninput="saveName()"></p>
+            <p>Click room. <a href="#" onclick="gotoPage('view-new-room')">Or new room?</a></p>
+            <p class="text-black-50">DOM Chat - Alpha Version</p>
+        </div>
+        <div id="view-new-room" class="view-tab d-none">
+            <form onsubmit="createOrJoinRoom($('#input-new-room').val()); return false;">
+                <input type="text" id="input-new-room" placeholder="Room Username">
+                <button class="btn btn-primary">Create or Join</button>
+            </form>
+        </div>
+        <div id="view-chat" class="view-tab d-none">
+            <input type="text" id="input-name" placeholder="Name" oninput="saveName()">
+            Click room. <a onclick="gotoPage('view-new-room')">Or new room?</a>
+        </div>
+    </div>
+    <script>
+        let userName = localStorage.name || window.server.computerName;
+
+        function gotoPage(page) {
+            $('.view-tab').each(function (i, e) {
+                if (e.id == page)
+                    e.classList.remove('d-none');
+                else
+                    e.classList.add('d-none');
+            });
+        }
+
+        function saveName(newName) {
+            if (newName)
+                localStorage.setItem('name', userName = newName);
+        }
+
+        function createOrJoinRoom(room) {
+            if (room)
+                window.server.joinRoom(room, userName);
+        }
+
+        window.addEventListener('DOMContentLoaded', (event) => {
+            $('#input-name').val(userName);
+        });
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,17 @@
+body {
+    background: white;
+}
+.sender {
+    font-weight: bold;
+    font-size: 0.8em;
+}
+.message {
+    white-space: break-spaces;
+}
+.bubble {
+    background: gainsboro;
+    margin-bottom: 0.5em;
+}
+.view-tab {
+    flex-grow: 1;
+}
