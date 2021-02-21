@@ -4,7 +4,7 @@ const rooms = {};
 const roomsOfAddresses = {};
 const {
     parseHttpLike,
-    sanitizeUsername
+    sanitizeRoomName
 } = require('./util');
 
 var server = net.createServer(function (socket) {
@@ -14,10 +14,9 @@ var server = net.createServer(function (socket) {
 
     socket.on('data', function (data) {
         var req = parseHttpLike(data);
+        var room = sanitizeRoomName(req.headers['room'] || '');
         if (req.method == 'JOIN') {
-            var room = sanitizeUsername(req.headers['room']);
-            var name = req.headers['name'];
-            if (!room || !name) {
+            if (!room) {
                 socket.write('INVALID');
                 return;
             }
@@ -32,7 +31,6 @@ var server = net.createServer(function (socket) {
                 // add to room
                 var identifier = {
                     address: address,
-                    name: address,
                     socket: socket,
                 }
                 if (!rooms[room]) {
@@ -51,7 +49,6 @@ var server = net.createServer(function (socket) {
                         rooms[room][adr].socket.write('JOINING\n\n' + JSON.stringify({
                             room: room,
                             address: address,
-                            name: name,
                         }));
                     });
                     rooms[room][address] = identifier;
@@ -65,7 +62,6 @@ var server = net.createServer(function (socket) {
             }
         } else if (req.method == 'CHECK') {
             // check if room free
-            var room = sanitizeUsername(req.headers['room']);
             if (!room) {
                 socket.write('INVALID');
             } else if (rooms[room]) {
@@ -73,6 +69,29 @@ var server = net.createServer(function (socket) {
             } else {
                 socket.write('AVAILABLE');
             }
+            return;
+        } else if (req.method == 'LEAVE') {
+            delete rooms[room][address];
+            if ((i = roomsOfAddresses[address].indexOf(room)) >= 0) {
+                delete roomsOfAddresses[address][i];
+            }
+            if (Object.keys(rooms[room]).length == 0) {
+                delete rooms[room];
+            } else {
+                // tell everyone else
+                Object.keys(rooms[room]).forEach(adr => {
+                    rooms[room][adr].socket.write('LEAVING\n\n' + JSON.stringify({
+                        room: room,
+                        address: adr,
+                    }));
+                });
+            }
+
+        } else if (req.method == 'WHOAMI') {
+            socket.write('IAMWHO\n\n'+JSON.stringify({
+                uid: 'server',
+                name: 'DOM-CHAT SERVER',
+            }));
             return;
         }
     })

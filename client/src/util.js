@@ -20,7 +20,15 @@ function sanitizeRoomName(name) {
     return ('' + name).trim().replace(/ /g, '-').toLowerCase();
 }
 
+function splitAddress(addr) {
+    var splitter = addr.lastIndexOf(':');
+    if (splitter >= 0) {
+        return [addr.substr(0, splitter), addr.substr(splitter + 1)];
+    }
+}
+
 module.exports = {
     parseHttpLike,
     sanitizeRoomName,
+    splitAddress,
 }
