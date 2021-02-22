@@ -12,8 +12,16 @@ const {
 class Communication {
     /** @type {net.Server} */
     server = null;
+    serverStun = {
+        host: 'localhost',
+        port: 8080,
+    };
     /** @type {Number} */
     serverPort = null;
+    /** @type {Number} */
+    serverCode = null;
+    /** @type {string} */
+    serverAddress = null;
     /** @type {Object.<string, Peer>} */
     peers = {};
     /** @type {Object.<string, Room>} */
@@ -27,6 +35,17 @@ class Communication {
         name: os.hostname(),
         uid: 'u-' + Date.now(),
     };
+    constructor(srv) {
+        if (typeof srv == 'string') {
+            var parts = srv.split(':');
+            if (parts.length == 2) {
+                this.serverStun = {
+                    host: parts[0],
+                    port: parseInt(parts[1]),
+                }
+            }
+        }
+    }
     /**
      * server-updated
      * room-updated (rid)
@@ -44,19 +63,73 @@ class Communication {
             this.eventListeners[name].forEach(e => e(...args));
         }
     }
-    constructor() {
+    startServer() {
+        // punch the hole
+        var sockpuppet = new net.Socket();
+        sockpuppet.connect(this.serverStun.port, this.serverStun.host, () => {
+            sockpuppet.write('PUNCHHOLE');
+            sockpuppet.on('data', (data) => {
+                var req = parseHttpLike(data);
+                var body = JSON.parse(req.body);
+                if (body) {
+                    this.serverCode = body.code;
+                    this.serverAddress = body.address;
+                }
+                this.serverPort = sockpuppet.address().port;
+                sockpuppet.destroy();
+                this.startServerReal();
+            })
+        })
+        sockpuppet.on('error', (e) => {
+            if (e.message.includes('ECONN')) {
+                this.trigger('server-updated');
+            }
+        })
+    }
+    startServerReal() {
+        if (this.server) {
+            this.server.close();
+        }
         this.server = net.createServer((socket) => {
             // to catch all unknown connections, we use this
             socket.on('data', (data) => {
                 // signal from peers
                 var req = parseHttpLike(data);
                 if (req.method == 'WHOAMI') {
+                    this.whoami.adr = this.serverAddress;
                     socket.write(`IAMWHO\n\n` + JSON.stringify(this.whoami));
+                } else {
+                    var peer = this.peers[req.headers.uid];
+                    if (!peer) {
+                        return;
+                    } else {
+                        if (req.method == 'MESSAGE') {
+                            var body = JSON.parse(req.body);
+                            if (body.cid && body.room && body.msg) {
+                                var room = this.rooms[body.room];
+                                if (room && room.peers[peer.address]) {
+                                    var payload = {
+                                        cid: body.cid,
+                                        msg: body.msg,
+                                        by: room.peers[peer.address],
+                                    };
+                                    room.chats.push(payload);
+                                    this.trigger('chat-received', room.rid, payload);
+                                }
+                            }
+                        }
+                    }
                 }
             })
         });
-        this.server.listen(() => {
-            this.serverPort = this.server.address().port;
+        this.server.on('close', () => {
+            this.server = null;
+            this.trigger('server-updated');
+        })
+        this.server.listen(this.serverPort, () => {
+            console.log('Listening on port ' + this.server.address().port);
+            this.startConnection(this.serverStun.host, this.serverStun.port);
+            this.trigger('server-updated');
         });
     }
     startConnection(host, port) {
@@ -69,7 +142,6 @@ class Communication {
         socket.connect({
             port,
             host,
-            localPort: this.serverPort,
         }, () => {
             // to prove it's valid, we need to ask WHOAMI
             socket.write("WHOAMI");
@@ -77,6 +149,26 @@ class Communication {
 
         socket.on('data', (data) => {
             var req = parseHttpLike(data);
+            if (req.method == 'IAMWHO') {
+                var body = JSON.parse(req.body);
+                if (typeof body == 'object') {
+                    peer.connected = true;
+                    peer.uid = body.uid;
+                    var address = body.adr;
+                    peer.name = body.name || address;
+                    peer.address = address;
+                    // refresh indexes
+                    this.peers[body.uid] = peer;
+                    this.address2uid[address] = peer.uid;
+                    if (this.address2rid[address])
+                        this.address2rid[address].forEach(rid => {
+                            if (this.rooms[rid].peers[address] !== undefined) {
+                                this.rooms[rid].peers[address] = peer.uid;
+                                this.trigger('room-updated', rid);
+                            }
+                        });
+                }
+            }
             if (peer.uid == 'server') {
                 if (req.method == 'WELCOME') {
                     // we're joining to a new room
@@ -88,48 +180,11 @@ class Communication {
                     //somebody leaves the room
                     this.respond2Leaving(JSON.parse(req.body));
                 }
-            } else {
-                if (req.method == 'IAMWHO') {
-                    var body = JSON.parse(req.body);
-                    var address = peer.address;
-                    if (typeof body == 'object') {
-                        peer.connected = true;
-                        peer.uid = body.uid;
-                        peer.name = body.name || address;
-                        // refresh indexes
-                        this.peers[body.uid] = peer;
-                        this.address2uid[address] = peer.uid;
-                        if (this.address2rid[address])
-                            this.address2rid[address].forEach(rid => {
-                                if (this.rooms[rid].peers[address] !== undefined) {
-                                    this.rooms[rid].peers[address] = peer.uid;
-                                    this.trigger('room-updated', rid);
-                                }
-                            });
-                        if (peer.uid == 'server') {
-                            this.trigger('server-updated');
-                        }
-                    }
-                } else if (req.method == 'MESSAGE') {
-                    var body = JSON.parse(req.body);
-                    if (body.cid && body.room && body.msg) {
-                        var room = this.rooms[body.room];
-                        if (room && room.peers[peer.address]) {
-                            var payload = {
-                                cid: body.cid,
-                                msg: body.msg,
-                                by: room.peers[peer.address],
-                            };
-                            room.chats.push(payload);
-                            this.trigger('chat-received', rid, payload);
-                        }
-                    }
-                }
             }
-        });
+        })
 
         socket.on('error', (err) => {
-            if (err.message.includes('ECONNREFUSED')) {
+            if (err.message.includes('ECONN')) {
                 // failed to connect
                 peer.connected = false;
                 if (peer.uid == 'server') {
@@ -150,21 +205,22 @@ class Communication {
     joinRoom(rid) {
         var peer = this.peers['server'];
         if (peer && peer.connected) {
-            peer.socket.write(`JOIN\nROOM: ${rid}`);
+            peer.socket.write(`JOIN\nCODE: ${this.serverCode}\nROOM: ${rid}`);
         }
     }
     leaveRoom(rid) {
         var peer = this.peers['server'];
         if (peer && peer.connected) {
-            peer.write(`LEAVE\nROOM: ${rid}`);
+            peer.write(`LEAVE\nCODE: ${this.serverCode}\nROOM: ${rid}`);
         }
     }
     sendChat(rid, message) {
         // send to all peers
         var room = this.rooms[rid];
         if (room) {
-            var payload = 'MESSAGE\n\n' + JSON.stringify({
-                cid: Date.now(),
+            var cid = Date.now();
+            var payload = 'MESSAGE\nUID: ' + this.whoami.uid + '\n\n' + JSON.stringify({
+                cid: cid,
                 room: rid,
                 msg: message,
             });
@@ -174,14 +230,20 @@ class Communication {
                     peer.socket.write(payload);
                 }
             });
+            var payload = {
+                cid: cid,
+                msg: message,
+                by: this.whoami.uid,
+            };
+            room.chats.push(payload);
+            this.trigger('chat-received', rid, payload)
         }
     }
     closeAllConnection() {
-        console.log('quit');
-        this.server.close();
+        if (this.server && this.server.listening)
+            this.server.close();
         Object.values(this.peers).forEach(e => {
-            if (e.socket) {
-                e.socket.end();
+            if (e.socket && !e.socket.destroyed) {
                 e.socket.destroy();
             }
         });
@@ -296,6 +358,8 @@ class Peer {
     port = null;
     /** @type {string} */
     address = null;
+    /** @type {string} */
+    code = null;
     /** @type {net.Socket} */
     socket = null;
     /** @type {boolean} */

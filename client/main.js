@@ -10,6 +10,12 @@ const {
   Communication
 } = require('./src/communication');
 
+const argv = require('minimist')(process.argv.slice(2));
+if (argv.version) {
+    console.log(app.getVersion());
+    process.exit();
+}
+
 function createWindow() {
   // Create the browser window.
   const mainWindow = new BrowserWindow({
@@ -30,7 +36,7 @@ function createWindow() {
   return mainWindow;
 }
 
-const com = new Communication();
+const com = new Communication(argv.server);
 
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
@@ -54,10 +60,12 @@ app.whenReady().then(() => {
     })
   });
   ipcMain.handle('get-server-info', function (event) {
-    return (com.peers['server'] && com.peers['server'].toObject()) || null;
+    return {
+      port: com.serverPort,
+      connected: !!com.server,
+    };
   })
   ipcMain.handle('get-room-info', function (event, rid) {
-    console.log([rid]);
     return (com.rooms[rid] && com.rooms[rid].toObject()) || null;
   })
   ipcMain.handle('get-peer-info', function (event, uid) {
@@ -82,7 +90,7 @@ app.whenReady().then(() => {
     com.sendChat(room, message);
   })
   ipcMain.on('connect-server', function (event) {
-    com.startConnection('localhost', 8080);
+    com.startServer();
   })
   ipcMain.on('close-server', function (event) {
     com.closeAllConnection();

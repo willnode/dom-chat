@@ -29,7 +29,7 @@
   <div class="d-flex flex-grow-1">
     <div id="rooms" style="width: 200px;" class="mr-2 bg-light">
       <div id="list-rooms"></div>
-      <button  data-toggle="modal" data-target="#exampleModal" class="btn btn-block btn-primary">New
+      <button  data-toggle="modal" data-target="#joinRoomModal" class="btn btn-block btn-primary">New
         Room</button>
     </div>
     <div id="chats" class="d-flex flex-column flex-grow-1 py-2">
@@ -41,11 +41,12 @@
       </div>
     </div>
     <div id="rooms" style="width: 200px;" class="ml-2 bg-light">
+      <div class="my-3" id="active-room-name"></div>
       <div id="list-peers"></div>
     </div>
   </div>
-  <div class="modal" id="exampleModal" tabindex="-1">
-    <div class="modal-dialog">
+  <div class="modal" id="joinRoomModal" tabindex="-1">
+    <form class="modal-dialog" action="#" onsubmit="createOrJoinRoom($('#open-room-name').val()); $('#joinRoomModal').modal('hide');return false;">
       <div class="modal-content">
         <div class="modal-header">
           <h5 class="modal-title">Open Room</h5>
@@ -54,13 +55,13 @@
           </button>
         </div>
         <div class="modal-body">
-          <input type="text" id="open-room-name">
+          <input type="text" id="open-room-name" class="form-control">
         </div>
         <div class="modal-footer">
-          <button type="button" onclick="createOrJoinRoom($('#open-room-name').val())" data-dismiss="modal" class="btn btn-primary">Open</button>
+          <button class="btn btn-primary">Open</button>
         </div>
       </div>
-    </div>
+    </form>
   </div>
   <script>
     function changeDisplayName(newname) {
@@ -76,7 +77,7 @@
     function createOrJoinRoom(roomid) {
       if (roomid) {
         window.api.send('join-room', roomid);
-        $('#list-rooms').append($('<button class="btn-outline-primary">').on('click', function (e) {
+        $('#list-rooms').append($('<button class="btn btn-outline-primary">').on('click', function (e) {
           selectRoom(roomid);
         }).text(roomid));
       }
@@ -86,6 +87,7 @@
 
     function selectRoom(roomid) {
       currentRoom = roomid;
+      $('#active-room-name').text(roomid);
       window.api.get('get-room-info', roomid).then(i => {
         $('#list-chats').html(i.chats.map(x => $('<div>').text(x.by + ": " + x.msg)));
         $('#list-peers').html(Object.values(i.peers).map(x => $('<div>').text(x)));
@@ -111,7 +113,14 @@
           $('#server-status').text(i.connected ? 'Connected' : 'Offline');
           $('#server-retry').toggleClass('d-none', i.connected);
         });
-      })
+      });
+      // listen for chat updates
+      window.api.receive('chat-received', function (rid, payload) {
+        selectRoom(rid);
+      });
+      window.api.receive('room-updated', function (rid) {
+        selectRoom(rid);
+      });
       window.api.send('connect-server');
       // $('#input-name').val(userName);
       // window.api.receive('connection-changed', updateServerStatus);
