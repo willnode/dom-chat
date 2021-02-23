@@ -27,6 +27,7 @@ var server = net.createServer(function (socket) {
             var code = Date.now() - Math.trunc(Math.random() * 100000);
             var address = codeToAddress[code] = socket.remoteAddress + ":" + socket.remotePort;
             socket.write('OK\n\n' + JSON.stringify({code, address}));
+            console.log('punchole: '+address);
         } else if (req.method == 'WHOAMI') {
             var s = socket;
             if (req.headers.code && codeToAddress[req.headers.code]) {
